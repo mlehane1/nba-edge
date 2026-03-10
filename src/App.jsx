@@ -569,7 +569,7 @@ Respond in this exact format:
 Keep total response under 220 words. Be sharp and specific.`;
 
     try {
-      const r=await fetch("https://api.anthropic.com/v1/messages",{
+      const r=await fetch("/api/ai",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
@@ -744,7 +744,7 @@ export default function App() {
   const refreshBPI=async()=>{
     setBpiLoad(true);
     try {
-      const r=await fetch("https://api.anthropic.com/v1/messages",{
+      const r=await fetch("/api/ai",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           model:"claude-sonnet-4-6",max_tokens:600,

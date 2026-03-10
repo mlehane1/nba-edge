@@ -6,16 +6,16 @@ import { dirname, join } from "path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
-const ODDS_API_KEY = process.env.ODDS_API_KEY;
+const ODDS_API_KEY      = process.env.ODDS_API_KEY;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
-// Serve built frontend in production
+app.use(express.json({ limit: "2mb" }));
 app.use(express.static(join(__dirname, "dist")));
 
-// ── Odds proxy endpoint ───────────────────────────────────────────────────────
+// ── Odds proxy ────────────────────────────────────────────────────────────────
 app.get("/api/odds", async (req, res) => {
-  if (!ODDS_API_KEY) {
-    return res.status(500).json({ error: "ODDS_API_KEY environment variable is not set" });
-  }
+  if (!ODDS_API_KEY)
+    return res.status(500).json({ error: "ODDS_API_KEY is not set" });
 
   const url = new URL("https://api.the-odds-api.com/v4/sports/basketball_nba/odds");
   url.searchParams.set("apiKey", ODDS_API_KEY);
@@ -26,12 +26,7 @@ app.get("/api/odds", async (req, res) => {
   try {
     const upstream = await fetch(url.toString());
     const data = await upstream.json();
-
-    if (!upstream.ok) {
-      return res.status(upstream.status).json(data);
-    }
-
-    // Forward usage headers to the client
+    if (!upstream.ok) return res.status(upstream.status).json(data);
     res.set("X-Requests-Used",      upstream.headers.get("x-requests-used") || "");
     res.set("X-Requests-Remaining", upstream.headers.get("x-requests-remaining") || "");
     res.json(data);
@@ -40,17 +35,41 @@ app.get("/api/odds", async (req, res) => {
   }
 });
 
-// Health check
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, keyConfigured: !!ODDS_API_KEY });
+// ── Anthropic proxy ───────────────────────────────────────────────────────────
+app.post("/api/ai", async (req, res) => {
+  if (!ANTHROPIC_API_KEY)
+    return res.status(500).json({ error: "ANTHROPIC_API_KEY is not set" });
+
+  try {
+    const upstream = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "web-search-2025-03-05",
+      },
+      body: JSON.stringify(req.body),
+    });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// SPA fallback — serve index.html for all non-API routes
+// ── Health check ──────────────────────────────────────────────────────────────
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, oddsKey: !!ODDS_API_KEY, anthropicKey: !!ANTHROPIC_API_KEY });
+});
+
+// ── SPA fallback ──────────────────────────────────────────────────────────────
 app.get("*", (_req, res) => {
   res.sendFile(join(__dirname, "dist", "index.html"));
 });
 
 app.listen(PORT, () => {
   console.log(`NBA Edge running on port ${PORT}`);
-  if (!ODDS_API_KEY) console.warn("⚠  ODDS_API_KEY not set — /api/odds will return 500");
+  if (!ODDS_API_KEY)      console.warn("⚠  ODDS_API_KEY not set");
+  if (!ANTHROPIC_API_KEY) console.warn("⚠  ANTHROPIC_API_KEY not set");
 });
