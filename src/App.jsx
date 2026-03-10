@@ -1,4 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
+
+function useIsMobile() {
+  const [mob, setMob] = useState(window.innerWidth < 768);
+  useEffect(() => {
+    const h = () => setMob(window.innerWidth < 768);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+  return mob;
+}
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
 // ─── TEAM MAPS ────────────────────────────────────────────────────────────────
@@ -258,7 +268,8 @@ function OddsTable({ game }) {
       </div>
 
       {/* Book rows */}
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+      <div className="odds-table-wrap">
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:480}}>
         <thead>
           <tr style={{color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em"}}>
             <th style={{textAlign:"left",padding:"6px 10px",borderBottom:`1px solid ${C.border}`}}>Sportsbook</th>
@@ -295,6 +306,7 @@ function OddsTable({ game }) {
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -312,7 +324,7 @@ function BPIAnalysis({ game, bpi, onRefresh, loading }) {
   return (
     <div>
       {/* BPI cards */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:12,marginBottom:16,alignItems:"center"}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:12,marginBottom:16,alignItems:"center",gridTemplateRows:"auto"}} className="bpi-grid">
         {[{abbr:away,bpv:aBpi,stand:aS,side:"AWAY"},{abbr:home,bpv:hBpi,stand:hS,side:"HOME"}].map((t,i)=>(
           <div key={t.abbr} style={{background:C.card,borderRadius:10,padding:16,textAlign:i===0?"left":"right"}}>
             <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>{t.abbr} · {t.side}</div>
@@ -686,6 +698,7 @@ export default function App() {
   const [usage,setUsage]         = useState({used:null,remain:null});
 
   const [gameTab,setGameTab]     = useState("odds");
+  const isMobile = useIsMobile();
 
   useEffect(()=>{
     (async()=>{
@@ -759,171 +772,209 @@ export default function App() {
 
 
 
+  // Game list panel (shared between mobile+desktop)
+  const GameList = () => (
+    <>
+      <div style={{padding:"8px 10px",borderBottom:`1px solid ${C.border}`,display:"flex",gap:6}}>
+        <button onClick={()=>fetchOdds()} disabled={loading} style={{...Btn("linear-gradient(135deg,#166534,#22C55E)"),flex:1,padding:"11px 0",fontSize:12,opacity:loading?0.7:1}}>
+          {loading?"⟳ Fetching…":"↻ Refresh Odds"}
+        </button>
+      </div>
+      {(usage.used||usage.remain)&&(
+        <div style={{padding:"5px 12px",background:"#080F1A",fontSize:10,color:C.muted,display:"flex",justifyContent:"space-between"}}>
+          <span>Used: {usage.used}</span><span>Remaining: {usage.remain}</span>
+        </div>
+      )}
+      {fetchErr&&<div style={{padding:"7px 12px",background:"#180808",color:C.red,fontSize:11}}>{fetchErr.slice(0,120)}</div>}
+      <div style={{flex:1,overflowY:"auto"}}>
+        {gameList.length===0&&!loading&&(
+          <div style={{padding:32,textAlign:"center",color:C.muted,fontSize:13}}>Loading games…</div>
+        )}
+        {loading&&gameList.length===0&&(
+          <div style={{padding:32,textAlign:"center",color:C.muted,fontSize:13}}>⟳ Fetching odds…</div>
+        )}
+        {gameList.map(g=>{
+          const isLive=new Date(g.startTime)<=now;
+          const isSel=sel?.id===g.id;
+          const hI=TEAM_INFO[g.home]||{color:"#888"}, aI=TEAM_INFO[g.away]||{color:"#888"};
+          const hFat=getFatigue(g.home,g.startTime?.slice(0,10)||""), aFat=getFatigue(g.away,g.startTime?.slice(0,10)||"");
+          const bpiSprd=getBpiSpread(g.home,g.away,bpi);
+          const disc=g.consensus!=null&&bpiSprd!=null?Math.abs(+(g.consensus-bpiSprd).toFixed(1)):0;
+          const gHist=hist[g.id]||[];
+          const lineMove=gHist.length>=2?+(gHist[gHist.length-1].consensus-gHist[0].consensus).toFixed(1):null;
+          const startT=g.startTime?new Date(g.startTime).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"TBD";
+          return (
+            <div key={g.id} onClick={()=>{setSel(g);setGameTab("odds");}} style={{
+              padding:"12px 14px",borderBottom:`1px solid ${C.border}22`,cursor:"pointer",
+              background:isSel?"#0E1C32":"transparent",
+              borderLeft:`3px solid ${isSel?C.gold:"transparent"}`,
+              transition:"background 0.12s", minHeight:64,
+            }}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                  {isLive&&<span style={{...Pill("#7F1D1D","#FCA5A5"),animation:"pulse 2s infinite",fontSize:9}}>● LIVE</span>}
+                  <span style={{fontSize:11,color:C.muted}}>{startT}</span>
+                </div>
+                <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                  {disc>2.5&&<span style={{...Pill("#1C1A08",C.gold),fontSize:9}}>🔥 EDGE</span>}
+                  {lineMove!==null&&lineMove!==0&&<span style={{fontSize:11,fontWeight:700,color:lineMove>0?C.red:C.green}}>{lineMove>0?"▲":"▼"}{Math.abs(lineMove)}</span>}
+                  {(hFat.b2b||aFat.b2b)&&<span style={{fontSize:9,color:C.red,fontWeight:700}}>B2B</span>}
+                </div>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                  {[{abbr:g.away,i:aI},{abbr:g.home,i:hI}].map(({abbr,i})=>(
+                    <div key={abbr} style={{display:"flex",alignItems:"center",gap:7}}>
+                      <div style={{width:6,height:6,borderRadius:"50%",background:i.color,flexShrink:0}}/>
+                      <span style={{fontSize:14,fontWeight:700}}>{abbr}</span>
+                    </div>
+                  ))}
+                </div>
+                {g.consensus!=null&&(
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:13,fontWeight:700,color:C.gold}}>{g.home} {g.consensus>0?`+${g.consensus}`:g.consensus}</div>
+                    {g.consensusTot&&<div style={{fontSize:11,color:C.muted}}>O/U {g.consensusTot}</div>}
+                  </div>
+                )}
+              </div>
+              {g.consensus!=null&&bpiSprd!=null&&disc>1&&(
+                <div style={{marginTop:6,height:2,background:C.border,borderRadius:1,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${Math.min((disc/8)*100,100)}%`,background:disc>3?C.gold:C.purple}}/>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+
+  // Detail panel content
+  const DetailPanel = () => sel ? (
+    <div style={{padding:isMobile?"12px":"22px",maxWidth:940,margin:"0 auto"}}>
+      {/* Mobile back button */}
+      {isMobile&&(
+        <button onClick={()=>setSel(null)} style={{...Btn("transparent",C.sub),padding:"0 0 12px 0",fontSize:13,display:"flex",alignItems:"center",gap:6}}>
+          ← Back to games
+        </button>
+      )}
+      {/* Matchup header */}
+      <div style={{background:`linear-gradient(135deg,${C.panel},#0A1525)`,border:`1px solid ${C.border}`,borderRadius:14,padding:isMobile?"14px":"20px 24px",marginBottom:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>
+              {sel.startTime?new Date(sel.startTime).toLocaleDateString([],{weekday:"short",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}):"Upcoming"}
+              {new Date(sel.startTime)<=now&&" · 🔴 LIVE"}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <span style={{fontFamily:"'Bebas Neue',serif",fontSize:isMobile?38:52,letterSpacing:"0.04em",color:TEAM_INFO[sel.away]?.color||C.text,lineHeight:1}}>{sel.away}</span>
+              <span style={{fontSize:16,color:C.border,fontWeight:900}}>@</span>
+              <span style={{fontFamily:"'Bebas Neue',serif",fontSize:isMobile?38:52,letterSpacing:"0.04em",color:TEAM_INFO[sel.home]?.color||C.text,lineHeight:1}}>{sel.home}</span>
+            </div>
+            <div style={{fontSize:12,color:C.sub,marginTop:3}}>{TEAM_INFO[sel.away]?.name} at {TEAM_INFO[sel.home]?.name}</div>
+          </div>
+          {sel.consensus!=null&&(
+            <div style={{textAlign:"right",flexShrink:0}}>
+              <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:3}}>Consensus</div>
+              <div style={{fontFamily:"'Bebas Neue',serif",fontSize:isMobile?30:42,color:C.gold,lineHeight:1}}>
+                {sel.home} {sel.consensus>0?`+${sel.consensus}`:sel.consensus}
+              </div>
+              {sel.consensusTot&&<div style={{fontSize:13,color:C.blue,marginTop:2}}>O/U {sel.consensusTot}</div>}
+              <div style={{fontSize:10,color:C.muted,marginTop:3}}>{sel.books.length} books</div>
+            </div>
+          )}
+        </div>
+        {selHist.length>=2&&(
+          <div style={{marginTop:14,borderTop:`1px solid ${C.border}`,paddingTop:14}}>
+            <LineMov history={selHist}/>
+          </div>
+        )}
+        {selHist.length<2&&sel.consensus!=null&&(
+          <div style={{marginTop:8,fontSize:11,color:C.muted,fontStyle:"italic",borderTop:`1px solid ${C.border}22`,paddingTop:8}}>
+            ⟳ Refresh odds over time to build line movement history
+          </div>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div className="tab-bar" style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
+        {TABS.map(([k,l])=>(
+          <button key={k} onClick={()=>setGameTab(k)} style={{
+            padding:isMobile?"10px 14px":"10px 20px",border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",
+            fontSize:isMobile?11:12,fontWeight:700,letterSpacing:"0.04em",
+            color:gameTab===k?C.gold:C.muted,
+            borderBottom:`2px solid ${gameTab===k?C.gold:"transparent"}`,
+            transition:"color 0.15s",whiteSpace:"nowrap",minHeight:44,
+          }}>{l}</button>
+        ))}
+      </div>
+
+      <div style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:14,padding:isMobile?14:24}}>
+        {gameTab==="odds"   &&<OddsTable game={sel}/>}
+        {gameTab==="bpi"    &&<BPIAnalysis game={sel} bpi={bpi} onRefresh={refreshBPI} loading={bpiLoading}/>}
+        {gameTab==="teams"  &&<div style={{display:"flex",gap:16,flexDirection:isMobile?"column":"row",flexWrap:"wrap"}}><TeamCard abbr={sel.away} gameDate={sel.startTime?.slice(0,10)||"2026-03-10"}/><TeamCard abbr={sel.home} gameDate={sel.startTime?.slice(0,10)||"2026-03-10"}/></div>}
+        {gameTab==="predict"&&<Predictor game={sel} bpi={bpi}/>}
+        {gameTab==="ai"     &&<AIDeepDive game={sel} bpi={bpi}/>}
+      </div>
+    </div>
+  ) : (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",gap:14,textAlign:"center",padding:24}}>
+      <div style={{fontSize:52}}>🏀</div>
+      <div style={{fontFamily:"'Bebas Neue',serif",fontSize:36,color:C.border,letterSpacing:"0.1em"}}>SELECT A GAME</div>
+      <div style={{fontSize:13,color:C.muted,maxWidth:340,lineHeight:1.6}}>
+        Pick a matchup from the sidebar. Line movement is tracked every refresh and BPI discrepancies are flagged as edges.
+      </div>
+    </div>
+  );
+
   return (
-    <div style={{display:"flex",height:"100vh",background:C.bg,color:C.text,fontFamily:"'Space Grotesk',system-ui,sans-serif",overflow:"hidden"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"100dvh",background:C.bg,color:C.text,fontFamily:"'Space Grotesk',system-ui,sans-serif",overflow:"hidden"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600;700;800&display=swap');
         *{box-sizing:border-box;margin:0;padding:0;}
         ::-webkit-scrollbar{width:3px;} ::-webkit-scrollbar-track{background:${C.bg};} ::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px;}
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
-        button:hover{filter:brightness(1.1);}
+        button:hover{filter:brightness(1.08);}
+        .tab-bar{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+        .tab-bar::-webkit-scrollbar{display:none;}
+        .odds-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
       `}</style>
 
-
-
-      {/* ── SIDEBAR ── */}
-      <aside style={{width:288,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",background:C.panel,flexShrink:0}}>
-        <div style={{padding:"16px 14px 10px",borderBottom:`1px solid ${C.border}`}}>
-          <div style={{fontFamily:"'Bebas Neue',serif",fontSize:28,color:C.gold,letterSpacing:"0.06em",lineHeight:1}}>NBA EDGE</div>
-          <div style={{fontSize:10,color:C.muted,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:2}}>Spread Intelligence Platform</div>
-        </div>
-
-        <div style={{padding:"8px 10px",borderBottom:`1px solid ${C.border}`,display:"flex",gap:6}}>
-          <button onClick={()=>fetchOdds()} disabled={loading} style={{...Btn("linear-gradient(135deg,#166534,#22C55E)"),flex:1,padding:"8px 0",fontSize:11,opacity:loading?0.7:1}}>
-            {loading?"⟳ Fetching…":"↻ Refresh Odds"}
-          </button>
-
-        </div>
-
-        {(usage.used||usage.remain)&&(
-          <div style={{padding:"5px 12px",background:"#080F1A",fontSize:10,color:C.muted,display:"flex",justifyContent:"space-between",borderBottom:`1px solid ${C.border}22`}}>
-            <span>Used: {usage.used}</span><span>Remaining: {usage.remain}</span>
+      {isMobile ? (
+        /* ── MOBILE: full-screen stack ── */
+        <div style={{display:"flex",flexDirection:"column",height:"100dvh",overflow:"hidden"}}>
+          {/* Header bar */}
+          <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,background:C.panel,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+            <div style={{fontFamily:"'Bebas Neue',serif",fontSize:24,color:C.gold,letterSpacing:"0.06em",lineHeight:1}}>NBA EDGE</div>
+            {sel&&<div style={{fontSize:12,fontWeight:700,color:C.sub}}>{sel.away} @ {sel.home}</div>}
           </div>
-        )}
-        {fetchErr&&<div style={{padding:"7px 12px",background:"#180808",color:C.red,fontSize:11,borderBottom:`1px solid #7F1D1D`}}>{fetchErr.slice(0,120)}</div>}
-
-        <div style={{flex:1,overflowY:"auto"}}>
-          {gameList.length===0&&!loading&&(
-            <div style={{padding:24,textAlign:"center",color:C.muted,fontSize:12}}>
-              {"Click Refresh Odds to load games"}
+          {/* Content: show list OR detail */}
+          {!sel ? (
+            <div style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden",background:C.panel}}>
+              <GameList/>
+            </div>
+          ) : (
+            <div style={{flex:1,overflowY:"auto",background:C.bg}}>
+              <DetailPanel/>
             </div>
           )}
-          {gameList.map(g=>{
-            const isLive=new Date(g.startTime)<=now;
-            const isSel=sel?.id===g.id;
-            const hI=TEAM_INFO[g.home]||{color:"#888"}, aI=TEAM_INFO[g.away]||{color:"#888"};
-            const hFat=getFatigue(g.home,g.startTime?.slice(0,10)||""), aFat=getFatigue(g.away,g.startTime?.slice(0,10)||"");
-            const bpiSprd=getBpiSpread(g.home,g.away,bpi);
-            const disc=g.consensus!=null&&bpiSprd!=null?Math.abs(+(g.consensus-bpiSprd).toFixed(1)):0;
-            const gHist=hist[g.id]||[];
-            const lineMove=gHist.length>=2?+(gHist[gHist.length-1].consensus-gHist[0].consensus).toFixed(1):null;
-            const startT=g.startTime?new Date(g.startTime).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"TBD";
-            return (
-              <div key={g.id} onClick={()=>{setSel(g);setGameTab("odds");}} style={{padding:"9px 12px",borderBottom:`1px solid ${C.border}22`,cursor:"pointer",
-                background:isSel?"#0E1C32":"transparent",borderLeft:`3px solid ${isSel?C.gold:"transparent"}`,transition:"background 0.12s"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
-                  <div style={{display:"flex",gap:5,alignItems:"center"}}>
-                    {isLive&&<span style={{...Pill("#7F1D1D","#FCA5A5"),animation:"pulse 2s infinite",fontSize:9}}>● LIVE</span>}
-                    <span style={{fontSize:10,color:C.muted}}>{startT}</span>
-                  </div>
-                  <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                    {disc>2.5&&<span style={{...Pill("#1C1A08",C.gold),fontSize:9}}>🔥 EDGE</span>}
-                    {lineMove!==null&&lineMove!==0&&<span style={{fontSize:10,fontWeight:700,color:lineMove>0?C.red:C.green}}>{lineMove>0?"▲":"▼"}{Math.abs(lineMove)}</span>}
-                    {(hFat.b2b||aFat.b2b)&&<span style={{fontSize:9,color:C.red,fontWeight:700}}>B2B</span>}
-                  </div>
-                </div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                    {[{abbr:g.away,i:aI},{abbr:g.home,i:hI}].map(({abbr,i})=>(
-                      <div key={abbr} style={{display:"flex",alignItems:"center",gap:6}}>
-                        <div style={{width:5,height:5,borderRadius:"50%",background:i.color}}/>
-                        <span style={{fontSize:13,fontWeight:700}}>{abbr}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {g.consensus!=null&&(
-                    <div style={{textAlign:"right"}}>
-                      <div style={{fontSize:12,fontWeight:700,color:C.gold}}>{g.home} {g.consensus>0?`+${g.consensus}`:g.consensus}</div>
-                      {g.consensusTot&&<div style={{fontSize:10,color:C.muted}}>O/U {g.consensusTot}</div>}
-                    </div>
-                  )}
-                </div>
-                {g.consensus!=null&&bpiSprd!=null&&disc>1&&(
-                  <div style={{marginTop:5,height:2,background:C.border,borderRadius:1,overflow:"hidden"}}>
-                    <div style={{height:"100%",width:`${Math.min((disc/8)*100,100)}%`,background:disc>3?C.gold:C.purple}}/>
-                  </div>
-                )}
-              </div>
-            );
-          })}
         </div>
-      </aside>
-
-      {/* ── MAIN ── */}
-      <main style={{flex:1,overflowY:"auto"}}>
-        {!sel?(
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",gap:16,textAlign:"center",padding:24}}>
-            <div style={{fontSize:52}}>🏀</div>
-            <div style={{fontFamily:"'Bebas Neue',serif",fontSize:40,color:C.border,letterSpacing:"0.1em"}}>SELECT A GAME</div>
-            <div style={{fontSize:14,color:C.muted,maxWidth:380,lineHeight:1.6}}>
-              Pick a matchup from the sidebar. The app tracks line movement every time you hit Refresh, and flags BPI discrepancies as potential edges.
+      ) : (
+        /* ── DESKTOP: sidebar + main ── */
+        <div style={{display:"flex",flex:1,overflow:"hidden"}}>
+          <aside style={{width:288,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",background:C.panel,flexShrink:0}}>
+            <div style={{padding:"16px 14px 10px",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{fontFamily:"'Bebas Neue',serif",fontSize:28,color:C.gold,letterSpacing:"0.06em",lineHeight:1}}>NBA EDGE</div>
+              <div style={{fontSize:10,color:C.muted,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:2}}>Spread Intelligence Platform</div>
             </div>
-
-          </div>
-        ):(
-          <div style={{padding:22,maxWidth:940,margin:"0 auto"}}>
-            {/* Header */}
-            <div style={{background:`linear-gradient(135deg,${C.panel},#0A1525)`,border:`1px solid ${C.border}`,borderRadius:14,padding:"20px 24px",marginBottom:20}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12}}>
-                <div>
-                  <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:8}}>
-                    {sel.startTime?new Date(sel.startTime).toLocaleDateString([],{weekday:"long",month:"long",day:"numeric",hour:"2-digit",minute:"2-digit"}):"Upcoming"}
-                    {new Date(sel.startTime)<=now&&" · 🔴 LIVE"}
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-                    <span style={{fontFamily:"'Bebas Neue',serif",fontSize:52,letterSpacing:"0.04em",color:TEAM_INFO[sel.away]?.color||C.text,lineHeight:1}}>{sel.away}</span>
-                    <span style={{fontSize:20,color:C.border,fontWeight:900}}>@</span>
-                    <span style={{fontFamily:"'Bebas Neue',serif",fontSize:52,letterSpacing:"0.04em",color:TEAM_INFO[sel.home]?.color||C.text,lineHeight:1}}>{sel.home}</span>
-                  </div>
-                  <div style={{fontSize:13,color:C.sub,marginTop:4}}>{TEAM_INFO[sel.away]?.name} at {TEAM_INFO[sel.home]?.name}</div>
-                </div>
-                {sel.consensus!=null&&(
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Consensus Spread</div>
-                    <div style={{fontFamily:"'Bebas Neue',serif",fontSize:42,color:C.gold,lineHeight:1}}>
-                      {sel.home} {sel.consensus>0?`+${sel.consensus}`:sel.consensus}
-                    </div>
-                    {sel.consensusTot&&<div style={{fontSize:15,color:C.blue,marginTop:2}}>O/U {sel.consensusTot}</div>}
-                    <div style={{fontSize:11,color:C.muted,marginTop:4}}>{sel.books.length} books · {(() => { const b=getBpiSpread(sel.home,sel.away,bpi); const d=b!=null?Math.abs(+(sel.consensus-b).toFixed(1)):null; return d>2?<span style={{color:C.gold}}>⚡ {d}pt BPI edge</span>:"In line with BPI"; })()}</div>
-                  </div>
-                )}
-              </div>
-              {selHist.length>=2&&(
-                <div style={{marginTop:18,borderTop:`1px solid ${C.border}`,paddingTop:16}}>
-                  <LineMov history={selHist}/>
-                </div>
-              )}
-              {selHist.length<2&&sel.consensus!=null&&(
-                <div style={{marginTop:10,fontSize:11,color:C.muted,fontStyle:"italic",borderTop:`1px solid ${C.border}22`,paddingTop:10}}>
-                  ⟳ Refresh odds multiple times to see line movement history build below
-                </div>
-              )}
-            </div>
-
-            {/* Tabs */}
-            <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:18}}>
-              {TABS.map(([k,l])=>(
-                <button key={k} onClick={()=>setGameTab(k)} style={{
-                  padding:"10px 20px",border:"none",background:"none",cursor:"pointer",fontFamily:"inherit",
-                  fontSize:12,fontWeight:700,letterSpacing:"0.06em",
-                  color:gameTab===k?C.gold:C.muted,
-                  borderBottom:`2px solid ${gameTab===k?C.gold:"transparent"}`,
-                  transition:"color 0.15s",whiteSpace:"nowrap",
-                }}>{l}</button>
-              ))}
-            </div>
-
-            <div style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:14,padding:24}}>
-              {gameTab==="odds"   &&<OddsTable game={sel}/>}
-              {gameTab==="bpi"    &&<BPIAnalysis game={sel} bpi={bpi} onRefresh={refreshBPI} loading={bpiLoading}/>}
-              {gameTab==="teams"  &&<div style={{display:"flex",gap:16,flexWrap:"wrap"}}><TeamCard abbr={sel.away} gameDate={sel.startTime?.slice(0,10)||"2026-03-10"}/><TeamCard abbr={sel.home} gameDate={sel.startTime?.slice(0,10)||"2026-03-10"}/></div>}
-              {gameTab==="predict"&&<Predictor game={sel} bpi={bpi}/>}
-              {gameTab==="ai"     &&<AIDeepDive game={sel} bpi={bpi}/>}
-            </div>
-          </div>
-        )}
-      </main>
+            <GameList/>
+          </aside>
+          <main style={{flex:1,overflowY:"auto"}}>
+            <DetailPanel/>
+          </main>
+        </div>
+      )}
     </div>
   );
 }
